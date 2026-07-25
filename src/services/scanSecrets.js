@@ -1,29 +1,11 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { walkFiles } from "./walkFiles.js";
 import { shannonEntropy } from "./entropy.js";
 
-const IGNORED_DIRS = new Set([".git", "node_modules"]);
 const ENTROPY_THRESHOLD = 4.0;
 const MIN_TOKEN_LENGTH = 20;
 const TOKEN_PATTERN = /[A-Za-z0-9+/_=-]{20,}/g;
-
-const walkFiles = async (dir) => {
-  const entries = await readdir(dir, { withFileTypes: true });
-  let files = [];
-
-  for (const entry of entries) {
-    if (IGNORED_DIRS.has(entry.name)) continue;
-    const fullPath = path.join(dir, entry.name);
-
-    if (entry.isDirectory()) {
-      files = files.concat(await walkFiles(fullPath));
-    } else {
-      files.push(fullPath);
-    }
-  }
-
-  return files;
-};
 
 export const scanForSecrets = async (repoDir) => {
   const files = await walkFiles(repoDir);
@@ -48,6 +30,7 @@ export const scanForSecrets = async (repoDir) => {
           findings.push({
             file: path.relative(repoDir, filePath),
             line: index + 1,
+            match: token,
             detail: `High-entropy string detected (entropy=${entropy.toFixed(2)}): ${token.slice(0, 12)}...`,
           });
         }
