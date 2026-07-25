@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "node:http";
 import cors from "cors";
+import { connectDB } from "./config/db.js";
 
 const app = express();
 const server = createServer(app);
@@ -15,6 +16,11 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", service: "CodeSentry" });
 });
 
-server.listen(PORT, () => {
-  console.log(`CodeSentry server listening on port ${PORT}`);
-});
+const start = async () => {
+  await connectDB();
+  server.listen(PORT, () => {
+    console.log(`CodeSentry server listening on port ${PORT}`);
+  });
+};
+
+start();
