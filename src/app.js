@@ -10,7 +10,15 @@ const server = createServer(app);
 const PORT = process.env.PORT || 9000;
 
 app.use(cors());
-app.use(express.json());
+app.use(
+  express.json({
+    // Keep the raw request body around so the GitHub webhook signature
+    // (computed over the exact bytes GitHub sent) can be verified.
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.static("public"));
 
 app.get("/api/health", (req, res) => {
