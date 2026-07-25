@@ -33,6 +33,7 @@ export const checkVulnerabilities = async (repoDir) => {
     cves.forEach((cve) => {
       findings.push({
         file: "package.json",
+        match: `${dep.name}@${dep.version}:${cve.id}`,
         detail: `${dep.name}@${dep.version}: ${cve.id} (${cve.severity}, score ${cve.score ?? "n/a"}) - ${cve.description.slice(0, 150)}...`,
       });
     });
