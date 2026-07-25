@@ -3,17 +3,53 @@ import { Worker } from "bullmq";
 import { getRedisConnection } from "../config/redis.js";
 import { connectDB } from "../config/db.js";
 import { SCAN_QUEUE_NAME } from "../queues/scanQueue.js";
+import { cloneRepo, cleanupClone } from "../services/cloneRepo.js";
+import { scanForSecrets } from "../services/scanSecrets.js";
+import { Scan } from "../models/scan.model.js";
+import { Finding } from "../models/finding.model.js";
 
 const workerId = process.env.WORKER_ID || process.pid;
 
 const processJob = async (job) => {
-  console.log(`[worker ${workerId}] picked up job ${job.id} - repo=${job.data.repo} commit=${job.data.commit}`);
+  const { repo, commit } = job.data;
+  console.log(`[worker ${workerId}] picked up job ${job.id} - repo=${repo} commit=${commit}`);
 
-  // Placeholder work - real cloning + detection logic gets added next.
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  const scan = await Scan.create({ repo, commit });
+  let repoDir;
 
-  console.log(`[worker ${workerId}] finished job ${job.id}`);
-  return { processedBy: workerId, receivedAt: job.data.enqueuedAt };
+  try {
+    repoDir = await cloneRepo(repo, commit);
+    const secretFindings = await scanForSecrets(repoDir);
+
+    if (secretFindings.length > 0) {
+      await Finding.insertMany(
+        secretFindings.map((f) => ({
+          scanId: scan._id,
+          repo,
+          commit,
+          type: "secret",
+          ...f,
+        }))
+      );
+    }
+
+    scan.status = "completed";
+    scan.finishedAt = new Date();
+    await scan.save();
+
+    console.log(
+      `[worker ${workerId}] finished job ${job.id} - ${secretFindings.length} secret finding(s)`
+    );
+  } catch (err) {
+    scan.status = "failed";
+    scan.finishedAt = new Date();
+    await scan.save();
+    throw err;
+  } finally {
+    if (repoDir) await cleanupClone(repoDir);
+  }
+
+  return { scanId: scan._id.toString(), processedBy: workerId };
 };
 
 const start = async () => {
