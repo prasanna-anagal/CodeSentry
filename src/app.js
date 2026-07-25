@@ -4,9 +4,11 @@ import { createServer } from "node:http";
 import cors from "cors";
 import { connectDB } from "./config/db.js";
 import githubRoutes from "./routes/github.routes.js";
+import { initSocket } from "./socket.js";
 
 const app = express();
 const server = createServer(app);
+initSocket(server);
 const PORT = process.env.PORT || 9000;
 
 app.use(cors());
