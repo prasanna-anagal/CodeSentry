@@ -5,6 +5,7 @@ import { connectDB } from "../config/db.js";
 import { SCAN_QUEUE_NAME } from "../queues/scanQueue.js";
 import { cloneRepo, cleanupClone } from "../services/cloneRepo.js";
 import { scanForSecrets } from "../services/scanSecrets.js";
+import { checkVulnerabilities } from "../services/checkVulnerabilities.js";
 import { Scan } from "../models/scan.model.js";
 import { Finding } from "../models/finding.model.js";
 
@@ -19,15 +20,21 @@ const processJob = async (job) => {
 
   try {
     repoDir = await cloneRepo(repo, commit);
-    const secretFindings = await scanForSecrets(repoDir);
 
-    if (secretFindings.length > 0) {
+    const secretFindings = await scanForSecrets(repoDir);
+    const vulnFindings = await checkVulnerabilities(repoDir);
+
+    const allFindings = [
+      ...secretFindings.map((f) => ({ ...f, type: "secret" })),
+      ...vulnFindings.map((f) => ({ ...f, type: "vulnerability" })),
+    ];
+
+    if (allFindings.length > 0) {
       await Finding.insertMany(
-        secretFindings.map((f) => ({
+        allFindings.map((f) => ({
           scanId: scan._id,
           repo,
           commit,
-          type: "secret",
           ...f,
         }))
       );
@@ -38,7 +45,7 @@ const processJob = async (job) => {
     await scan.save();
 
     console.log(
-      `[worker ${workerId}] finished job ${job.id} - ${secretFindings.length} secret finding(s)`
+      `[worker ${workerId}] finished job ${job.id} - ${secretFindings.length} secret finding(s), ${vulnFindings.length} vulnerability finding(s)`
     );
   } catch (err) {
     scan.status = "failed";
