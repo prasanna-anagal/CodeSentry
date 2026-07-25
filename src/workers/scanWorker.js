@@ -18,6 +18,17 @@ const processJob = async (job) => {
   const { repo, commit } = job.data;
   console.log(`[worker ${workerId}] picked up job ${job.id} - repo=${repo} commit=${commit}`);
 
+  // BullMQ guarantees at-least-once delivery, so a worker crash mid-job can
+  // cause the same job to be redelivered. Skip re-scanning a commit that was
+  // already scanned to completion rather than double-counting findings.
+  const existingScan = await Scan.findOne({ repo, commit, status: "completed" });
+  if (existingScan) {
+    console.log(
+      `[worker ${workerId}] skipping job ${job.id} - ${repo}@${commit} was already scanned (scan ${existingScan._id})`
+    );
+    return { scanId: existingScan._id.toString(), skipped: true };
+  }
+
   const scan = await Scan.create({ repo, commit });
   await publishScanEvent({ kind: "scan-started", repo, commit, scanId: scan._id.toString() });
 
