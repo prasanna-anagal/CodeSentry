@@ -8,6 +8,7 @@ import { scanForSecrets } from "../services/scanSecrets.js";
 import { scanForPii } from "../services/scanPii.js";
 import { checkVulnerabilities } from "../services/checkVulnerabilities.js";
 import { diffFindings } from "../services/diffFindings.js";
+import { publishScanEvent } from "../services/scanEvents.js";
 import { Scan } from "../models/scan.model.js";
 import { Finding } from "../models/finding.model.js";
 
@@ -18,6 +19,8 @@ const processJob = async (job) => {
   console.log(`[worker ${workerId}] picked up job ${job.id} - repo=${repo} commit=${commit}`);
 
   const scan = await Scan.create({ repo, commit });
+  await publishScanEvent({ kind: "scan-started", repo, commit, scanId: scan._id.toString() });
+
   let repoDir;
 
   try {
@@ -56,10 +59,21 @@ const processJob = async (job) => {
     console.log(
       `[worker ${workerId}] finished job ${job.id} - ${classifiedFindings.length} finding(s) (${newCount} new, ${persistingCount} persisting)`
     );
+
+    await publishScanEvent({
+      kind: "scan-completed",
+      repo,
+      commit,
+      scanId: scan._id.toString(),
+      totalFindings: classifiedFindings.length,
+      newCount,
+      persistingCount,
+    });
   } catch (err) {
     scan.status = "failed";
     scan.finishedAt = new Date();
     await scan.save();
+    await publishScanEvent({ kind: "scan-failed", repo, commit, scanId: scan._id.toString() });
     throw err;
   } finally {
     if (repoDir) await cleanupClone(repoDir);

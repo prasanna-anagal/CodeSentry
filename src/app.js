@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import cors from "cors";
 import { connectDB } from "./config/db.js";
 import githubRoutes from "./routes/github.routes.js";
+import findingsRoutes from "./routes/findings.routes.js";
 import { initSocket } from "./socket.js";
 import { relayScanEvents } from "./relayScanEvents.js";
 
@@ -29,6 +30,7 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/github", githubRoutes);
+app.use("/api/findings", findingsRoutes);
 
 const start = async () => {
   await connectDB();
