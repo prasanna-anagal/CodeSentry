@@ -4,16 +4,150 @@
 <meta charset="UTF-8">
 <title>CodeSentry</title>
 <style>
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: #121212; color: #eaeaea; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-  .box { text-align: center; }
-  h1 { margin-bottom: 4px; }
-  p { color: #9a9a9a; }
+  :root {
+    --bg: #121212;
+    --card: #1c1c1c;
+    --border: #2e2e2e;
+    --text: #eaeaea;
+    --muted: #9a9a9a;
+    --accent: #4f6bed;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px 16px 60px;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+  h1 { margin: 0; font-size: 1.4rem; }
+  .status { font-size: 0.8rem; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border); }
+  .status.live { color: #6fcf73; border-color: #2e7d32; }
+  .status.offline { color: #e88; border-color: #833; }
+
+  .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+  @media (min-width: 800px) { .grid { grid-template-columns: 1fr 1.4fr; } }
+
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .panel h2 { margin: 0 0 12px; font-size: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+
+  .feed { max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .feed-item { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.82rem; }
+  .feed-item .kind { font-weight: 600; }
+  .feed-item .kind.scan-started { color: #e0b04b; }
+  .feed-item .kind.scan-completed { color: #6fcf73; }
+  .feed-item .kind.scan-failed { color: #e88; }
+  .feed-item .meta { color: var(--muted); margin-top: 2px; }
+  .empty { color: var(--muted); font-size: 0.85rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  thead th { text-align: left; color: var(--muted); font-size: 0.7rem; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  tbody td { padding: 8px; border-bottom: 1px solid #232323; vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; font-size: 0.68rem; padding: 2px 7px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
+  .badge.secret { background: rgba(184,134,11,.25); color: #e0b04b; }
+  .badge.vulnerability { background: rgba(198,40,40,.25); color: #ef5350; }
+  .badge.pii { background: rgba(79,107,237,.25); color: #8fa3ff; }
+  .status-badge { display: inline-block; font-size: 0.68rem; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+  .status-badge.new { background: rgba(46,125,50,.25); color: #6fcf73; }
+  .status-badge.persisting { background: rgba(154,154,154,.2); color: var(--muted); }
+  .table-wrap { max-height: 480px; overflow-y: auto; }
+  .repo-cell { color: var(--muted); font-size: 0.75rem; }
 </style>
 </head>
 <body>
-  <div class="box">
-    <h1>CodeSentry</h1>
-    <p>Server is running. Live dashboard coming soon.</p>
+<div class="wrap">
+  <header>
+    <h1>CodeSentry - Live Security Dashboard</h1>
+    <span class="status offline" id="connStatus">connecting...</span>
+  </header>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Live scan feed</h2>
+      <div class="feed" id="feed"><div class="empty">Waiting for scan activity...</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Current findings (<span id="findingCount">0</span>)</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Type</th><th>Repo / File</th><th>Detail</th><th>Status</th></tr>
+          </thead>
+          <tbody id="findingsBody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const feedEl = document.getElementById("feed");
+  const statusEl = document.getElementById("connStatus");
+  const findingsBody = document.getElementById("findingsBody");
+  const findingCountEl = document.getElementById("findingCount");
+
+  const addFeedItem = (event) => {
+    if (feedEl.querySelector(".empty")) feedEl.innerHTML = "";
+
+    const item = document.createElement("div");
+    item.className = "feed-item";
+    const time = new Date().toLocaleTimeString();
+
+    let meta = `${event.repo} @ ${(event.commit || "").slice(0, 7)}`;
+    if (event.kind === "scan-completed") {
+      meta += ` - ${event.totalFindings} finding(s), ${event.newCount} new`;
+    }
+
+    item.innerHTML = `<div class="kind ${event.kind}">${event.kind}</div><div class="meta">${meta}</div><div class="meta">${time}</div>`;
+    feedEl.prepend(item);
+  };
+
+  const renderFindings = (findings) => {
+    findingCountEl.textContent = findings.length;
+    findingsBody.innerHTML = findings
+      .map(
+        (f) => `
+      <tr>
+        <td><span class="badge ${f.type}">${f.type}</span></td>
+        <td><div class="repo-cell">${f.repo}</div>${f.file}${f.line ? ":" + f.line : ""}</td>
+        <td>${f.detail || ""}</td>
+        <td><span class="status-badge ${f.status}">${f.status}</span></td>
+      </tr>`
+      )
+      .join("");
+  };
+
+  const loadFindings = async () => {
+    const res = await fetch("/api/findings");
+    const findings = await res.json();
+    renderFindings(findings);
+  };
+
+  const socket = io();
+
+  socket.on("connect", () => {
+    statusEl.textContent = "live";
+    statusEl.className = "status live";
+  });
+
+  socket.on("disconnect", () => {
+    statusEl.textContent = "offline";
+    statusEl.className = "status offline";
+  });
+
+  socket.on("scan-event", (event) => {
+    addFeedItem(event);
+    if (event.kind === "scan-completed") {
+      loadFindings();
+    }
+  });
+
+  loadFindings();
+</script>
 </body>
 </html>
