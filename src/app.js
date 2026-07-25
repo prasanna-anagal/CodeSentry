@@ -3,6 +3,7 @@ import express from "express";
 import { createServer } from "node:http";
 import cors from "cors";
 import { connectDB } from "./config/db.js";
+import githubRoutes from "./routes/github.routes.js";
 
 const app = express();
 const server = createServer(app);
@@ -15,6 +16,8 @@ app.use(express.static("public"));
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", service: "CodeSentry" });
 });
+
+app.use("/api/github", githubRoutes);
 
 const start = async () => {
   await connectDB();
