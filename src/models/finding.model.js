@@ -7,8 +7,14 @@ const findingSchema = new Schema({
   type: { type: String, enum: ["secret", "vulnerability", "pii"], required: true },
   file: { type: String, required: true },
   line: { type: Number },
+  match: { type: String },
   detail: { type: String },
+  fingerprint: { type: String, required: true, index: true },
+  status: { type: String, enum: ["new", "persisting", "resolved"], default: "new" },
+  resolvedAt: { type: Date },
   createdAt: { type: Date, default: Date.now },
 });
+
+findingSchema.index({ repo: 1, fingerprint: 1 });
 
 export const Finding = mongoose.model("Finding", findingSchema);
