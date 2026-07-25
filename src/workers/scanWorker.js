@@ -5,7 +5,9 @@ import { connectDB } from "../config/db.js";
 import { SCAN_QUEUE_NAME } from "../queues/scanQueue.js";
 import { cloneRepo, cleanupClone } from "../services/cloneRepo.js";
 import { scanForSecrets } from "../services/scanSecrets.js";
+import { scanForPii } from "../services/scanPii.js";
 import { checkVulnerabilities } from "../services/checkVulnerabilities.js";
+import { diffFindings } from "../services/diffFindings.js";
 import { Scan } from "../models/scan.model.js";
 import { Finding } from "../models/finding.model.js";
 
@@ -22,16 +24,20 @@ const processJob = async (job) => {
     repoDir = await cloneRepo(repo, commit);
 
     const secretFindings = await scanForSecrets(repoDir);
+    const piiFindings = await scanForPii(repoDir);
     const vulnFindings = await checkVulnerabilities(repoDir);
 
-    const allFindings = [
+    const rawFindings = [
       ...secretFindings.map((f) => ({ ...f, type: "secret" })),
+      ...piiFindings.map((f) => ({ ...f, type: "pii" })),
       ...vulnFindings.map((f) => ({ ...f, type: "vulnerability" })),
     ];
 
-    if (allFindings.length > 0) {
+    const classifiedFindings = await diffFindings(repo, scan._id, rawFindings);
+
+    if (classifiedFindings.length > 0) {
       await Finding.insertMany(
-        allFindings.map((f) => ({
+        classifiedFindings.map((f) => ({
           scanId: scan._id,
           repo,
           commit,
@@ -44,8 +50,11 @@ const processJob = async (job) => {
     scan.finishedAt = new Date();
     await scan.save();
 
+    const newCount = classifiedFindings.filter((f) => f.status === "new").length;
+    const persistingCount = classifiedFindings.filter((f) => f.status === "persisting").length;
+
     console.log(
-      `[worker ${workerId}] finished job ${job.id} - ${secretFindings.length} secret finding(s), ${vulnFindings.length} vulnerability finding(s)`
+      `[worker ${workerId}] finished job ${job.id} - ${classifiedFindings.length} finding(s) (${newCount} new, ${persistingCount} persisting)`
     );
   } catch (err) {
     scan.status = "failed";
