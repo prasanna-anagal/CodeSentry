@@ -5,6 +5,7 @@ import cors from "cors";
 import { connectDB } from "./config/db.js";
 import githubRoutes from "./routes/github.routes.js";
 import { initSocket } from "./socket.js";
+import { relayScanEvents } from "./relayScanEvents.js";
 
 const app = express();
 const server = createServer(app);
@@ -31,6 +32,7 @@ app.use("/api/github", githubRoutes);
 
 const start = async () => {
   await connectDB();
+  await relayScanEvents();
   server.listen(PORT, () => {
     console.log(`CodeSentry server listening on port ${PORT}`);
   });
